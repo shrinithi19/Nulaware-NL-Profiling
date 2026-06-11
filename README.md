@@ -2,6 +2,11 @@
 
 NulAware AI is an interactive data profiling assistant built with Streamlit, ChromaDB, and Gemini. It enables CSV upload, automated dataset profiling, semantic retrieval, natural-language Q&A, visual analytics, and PDF report generation.
 
+## 🚀 Live Demo
+
+- 🌐 Deployment: https://your-app-url.streamlit.app
+- 🎥 Demo Video: https://youtube.com/your-demo-video
+
 ## Key Features
 
 - CSV dataset upload and profiling
