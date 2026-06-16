@@ -17,37 +17,124 @@ NulAware AI is an interactive data profiling assistant built with Streamlit, Chr
 - PDF report generation with AI executive summary
 - Conversation history and dataset sessions persisted in SQLite
 
-## Architecture
+
+## 📊 System Architecture & Control Flow Diagram
 
 ```mermaid
 flowchart TD
-    U[User] --> UI[Streamlit UI]
-    UI --> Upload[Upload Tab]
-    UI --> Chat[Chat Tab]
-    UI --> Dashboard[Dashboard Tab]
-    UI --> Report[Report Tab]
+    %% Styling
+    classDef frontend fill:#1a1a2e,stroke:#e94560,stroke-width:2px,color:#fff;
+    classDef tab fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#fff;
+    classDef backend fill:#0f0f1a,stroke:#2a2a4a,stroke-width:1.5px,color:#c0c0d8;
+    classDef external fill:#0d1b2a,stroke:#e94560,stroke-width:1.5px,color:#a0a0c0;
+    classDef database fill:#1b263b,stroke:#415a77,stroke-width:1.5px,color:#e0e0e0;
 
-    Upload --> Profile[Profiling Pipeline]
-    Profile --> Metadata[Extracted Metadata]
-    Metadata --> Chunker[Chunking & Embedding]
-    Chunker --> Chroma[ChromaDB Index]
-    Upload --> SessionDB[SQLite Session Store]
+    subgraph EntryPoint ["App Entry Point"]
+        app["Streamlit Web UI (streamlit_app.py)"]:::frontend
+        dbInit["init_db()"]:::database
+        app --> dbInit
+    end
 
-    Chat --> Planner[Agent Intent Planner]
-    Chat --> Retriever[Semantic Retriever]
-    Retriever --> Chroma
-    Planner --> Gemini[Gemini LLM]
-    Retriever --> Gemini
-    Chat --> ConversationDB[SQLite Conversation Store]
+    app --> tab1["1. Upload Dataset (upload.py)"]:::tab
+    app --> tab2["2. Chat with Dataset (chat.py)"]:::tab
+    app --> tab3["3. Visualization Dashboard (dashboard.py)"]:::tab
+    app --> tab4["4. Report Generator (report.py)"]:::tab
 
-    Dashboard --> Visualization[Plotly / Charts]
-    Dashboard --> Metadata
+    subgraph Tab1Flow ["Upload Dataset Tab Pipeline"]
+        direction TB
+        uploader["File Uploader (CSV)"]:::frontend
+        ydata["ydata-profiling"]:::external
+        meta_ext["extract_metadata()"]:::backend
+        chunker["build_chunks()"]:::backend
+        chroma_store["store_chunks()"]:::database
+        sqlite_session["save_session()"]:::database
 
-    Report --> PDF[Report Generator]
-    Report --> Gemini
-    Report --> Charts[Rendered Charts]
-    Report --> Metadata
+        tab1 --> uploader
+        uploader -->|"Ingest CSV"| ydata
+        ydata -->|"Generate Report (JSON/HTML)"| meta_ext
+        meta_ext -->|"Extract Features & Schema"| chunker
+        chunker -->|"Create Semantic Chunks"| chroma_store
+        chroma_store -->|"Save Vector Embeddings"| sqlite_session
+    end
+
+    subgraph Tab2Flow ["Chat & LangGraph Agent Pipeline"]
+        direction TB
+        input["Chat Form Input"]:::frontend
+        runAgent["run_agent()"]:::backend
+        langgraph["LangGraph Orchestration (graph.py)"]:::backend
+        memory["ConversationMemory"]:::database
+
+        tab2 --> input
+        input --> runAgent
+        runAgent --> langgraph
+        runAgent <--> memory
+        memory <--> sqlite_db[("SQLite DB")]:::database
+
+        subgraph GraphNodes ["LangGraph Nodes & Routers"]
+            planner["Planner Node (Classifies Intent)"]:::backend
+            router{"Intent Router"}:::backend
+            retriever["Retriever Node"]:::backend
+            statsNode["Stats Node"]:::backend
+            vizNode["Viz Node"]:::backend
+            reportNode["Report Node"]:::backend
+            responder["Responder Node"]:::backend
+
+            langgraph --> planner
+            planner --> router
+            router -->|"RAG / General QA"| retriever
+            router -->|"Compute Stats / Lookup"| statsNode
+            router -->|"Generate Chart"| vizNode
+            router -->|"Create Report File"| reportNode
+
+            retriever --> responder
+            statsNode --> responder
+            vizNode --> responder
+            reportNode --> responder
+        end
+
+        retriever -->|"Vector Search"| chroma_db[("ChromaDB Vector Store")]:::database
+        statsNode -->|"Compute Stats"| stats_tools["stats_tool.py"]:::backend
+        vizNode -->|"Auto Chart Selection"| viz_tools["visualization_tool.py"]:::backend
+        reportNode -->|"Generate Report PDF"| report_tools["report_tool.py"]:::backend
+        responder -->|"Generate Response"| gemini["Gemini API (Gemini 2.5 Flash)"]:::external
+    end
+
+    subgraph Tab3Flow ["Interactive Dashboard Component"]
+        direction TB
+        controls["Streamlit Selectors, Sliders & Tabs"]:::frontend
+        viz_funcs["Plotly Visualisation Functions"]:::backend
+        plotly_fig["Dynamic Plotly Figures"]:::frontend
+
+        tab3 --> controls
+        controls -->|"Call Visualisation API"| viz_funcs
+        viz_funcs -->|"Return Figure"| plotly_fig
+        viz_funcs -.->|"Reads column types & ranges"| session_meta["Session Metadata (st.session_state)"]:::database
+    end
+
+    subgraph Tab4Flow ["Automated Report Component"]
+        direction TB
+        options["Report Settings (Charts, AI Summary)"]:::frontend
+        rep_gen_fn["generate_pdf_report()"]:::backend
+        ai_sum_fn["Gemini AI Summary Generator"]:::external
+        pdf_out["Downloadable PDF Report"]:::frontend
+
+        tab4 --> options
+        options -->|"Initiate Report Generation"| rep_gen_fn
+        rep_gen_fn -->|"Generate Executive Summary"| ai_sum_fn
+        rep_gen_fn -->|"Export Chart Images"| viz_tools
+        rep_gen_fn -->|"Compile PDF (ReportLab)"| pdf_out
+    end
 ```
+
+### 🔗 Control Flow & Component Summary
+
+- **Main Entrypoint**: [streamlit_app.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/frontend/streamlit_app.py) handles initial layout styles and page configurations and runs SQLite `init_db()` in [sqlite_manager.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/database/sqlite_manager.py).
+- **Upload Pipeline**: [upload.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/frontend/tabs/upload.py) uploads CSV -> calls `ydata-profiling` in [generate_profile.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/profiling/generate_profile.py) -> extracts metadata in [extract_profile.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/profiling/extract_profile.py) -> chunks elements in [chunker.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/rag/chunker.py) -> stores embeddings in ChromaDB vector store via [chromadb_store.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/rag/chromadb_store.py).
+- **LangGraph Agent**: [chat.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/frontend/tabs/chat.py) triggers `run_agent()` inside the compiled LangGraph workflow defined in [graph.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/agents/graph.py). Intent parsing is handled by [planner.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/agents/planner.py) and context memory by [memory.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/agents/memory.py).
+- **Plotly Visuals**: [dashboard.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/frontend/tabs/dashboard.py) coordinates with [visualization_tool.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/tools/visualization_tool.py) to render interactive graphs directly to Streamlit tabs.
+- **Document Output**: [report.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/frontend/tabs/report.py) calls [report_tool.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/tools/report_tool.py) to compile ReportLab PDF data quality documents, supplemented by Gemini insights from [gemini_manager.py](file:///d:/NullAware/Nulaware-NL-Profiling/Project/backend/llm/gemini_manager.py).
+
+---
 
 ## Project Structure
 
@@ -173,4 +260,6 @@ pytest tests
 
 ## License
 
-Add your license information here.
+NullAware AI License.
+
+
